@@ -10,15 +10,13 @@ namespace DependencyInjectionContainer
     {
         private readonly object syncRoot = new object();
         private volatile object instance;
-        private Type type;
 
-        public SingletonContainer(Type type)
+        public SingletonContainer()
         {
-            this.type = type;
             instance = null;
         }
 
-        public object GetInstance(DIProvider provider)
+        public object GetInstance(DIProvider provider, Type type)
         {
             if (instance == null)
             {
