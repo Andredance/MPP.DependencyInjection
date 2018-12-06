@@ -12,12 +12,14 @@ namespace DependencyInjectionContainer
     {
         private readonly DIConfiguration configuration;
         private bool iEnumerableControl;
+        private List<Type> recursionControl;
 
         public DIProvider(DIConfiguration configuration)
         {
             ValidateConfiguration(configuration);
             this.configuration = configuration;
             iEnumerableControl = false;
+            recursionControl = new List<Type>();
         }
 
         public void ValidateConfiguration(DIConfiguration config)
@@ -38,10 +40,35 @@ namespace DependencyInjectionContainer
 
                     if (!ClassOriginChecker.IsDerivedFrom(implementationType, dependencyType))
                     {
-                        throw new ArgumentException("TImplementation must implement or be inherited from TDependency");
+                        throw new ArgumentException("TImplementation must implement or be inherited from TDependency. If class is generic, generic arguments of TDependency and TImplementation must be the same.");
                     }
                 }
             }
+        }
+
+        private bool GenericParamsCheck(Type type)
+        {
+            if (type.IsGenericType)
+            {
+                foreach (Type genericParam in type.GenericTypeArguments)
+                {
+                    if (!configuration.IsSingleton.ContainsKey(genericParam))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private object OpenGenericCreater(Type implementationType)
+        {
+            if (!GenericParamsCheck(implementationType))
+            {
+                throw new InvalidOperationException(string.Format("Can not create instance of type {0}. Generic arguments of type not registered in the container.", implementationType));
+            }
+            return CreateInstance(implementationType);
         }
 
         public TDependency Resolve<TDependency>()
@@ -50,9 +77,10 @@ namespace DependencyInjectionContainer
             return (TDependency)Resolve(typeof(TDependency));
         }
         
-        public object Resolve(Type type)
+        internal object Resolve(Type type)
         {
             Type typeToResolve = type;
+
             if (typeToResolve.IsGenericType 
                 && typeToResolve.GetGenericTypeDefinition().Equals(typeof(IEnumerable<>)) 
                 && !iEnumerableControl)
@@ -60,12 +88,44 @@ namespace DependencyInjectionContainer
                 typeToResolve = typeToResolve.GetGenericArguments()[0];
                 iEnumerableControl = true;
                 object implList = Activator.CreateInstance(typeof(List<>).MakeGenericType(typeToResolve));
-                foreach (Type tImplementation in configuration.DContainer[typeToResolve])
+                bool isGenericTypeDef = false;
+                List<Type> implementations;
+                if (typeToResolve.IsGenericType && configuration.IsSingleton.ContainsKey(typeToResolve.GetGenericTypeDefinition()))
                 {
-                    ((IList)implList).Add(CreateInstance(tImplementation));
+                    implementations = configuration.DContainer[typeToResolve.GetGenericTypeDefinition()];
+                    isGenericTypeDef = true;
+                } else
+                {
+                    implementations = configuration.DContainer[typeToResolve];
+                }
+
+                foreach (Type tImplementation in implementations)
+                {
+                    object instance;
+                    if (isGenericTypeDef)
+                    {
+                        var implementation = tImplementation.MakeGenericType(typeToResolve.GetGenericArguments());
+                        instance = OpenGenericCreater(implementation);
+                    } else
+                    {
+                        instance = CreateInstance(tImplementation);
+                    }
+                    ((IList)implList).Add(instance);
                 }
 
                 return implList;
+            }
+
+            //Open generic handler
+            if (typeToResolve.IsGenericType && configuration.IsSingleton.ContainsKey(typeToResolve.GetGenericTypeDefinition()))
+            {
+                if (configuration.DContainer[typeToResolve.GetGenericTypeDefinition()].Count > 1)
+                {
+                    throw new ArgumentException(string.Format("Can not create instance of type {0}. More than one realization of dependency exist.", typeToResolve));
+                }
+                var implementation = configuration.DContainer[typeToResolve.GetGenericTypeDefinition()][0];
+                implementation = implementation.MakeGenericType(typeToResolve.GetGenericArguments());
+                return OpenGenericCreater(implementation);
             }
 
             if (!configuration.IsSingleton.ContainsKey(typeToResolve))
@@ -73,20 +133,19 @@ namespace DependencyInjectionContainer
                 throw new InvalidOperationException(string.Format("Can not create instance of type {0}. Not registered in the container.", typeToResolve));
             }
 
-            if (typeToResolve.IsGenericType)
+            if (configuration.IsSingleton[typeToResolve])
             {
-                foreach (Type genericParam in typeToResolve.GenericTypeArguments)
-                {
-                    if (!configuration.IsSingleton.ContainsKey(genericParam))
-                    {
-                        throw new InvalidOperationException(string.Format("Can not create instance of type {0}. Not registered in the container.", genericParam));
-                    }
-                }
+                return configuration.SContainer[typeToResolve].GetInstance(this);
             }
 
             if (configuration.DContainer[typeToResolve].Count > 1)
             {
                 throw new ArgumentException(string.Format("Can not create instance of type {0}. More than one realization of dependency exist.", typeToResolve));
+            }
+
+            if (!GenericParamsCheck(typeToResolve))
+            {
+                throw new InvalidOperationException(string.Format("Can not create instance of type {0}. Generic arguments of type not registered in the container.", typeToResolve));
             }
 
             return CreateInstance(configuration.DContainer[typeToResolve][0]);
@@ -121,7 +180,7 @@ namespace DependencyInjectionContainer
             return true;
         }
 
-        private object CreateInstance(Type type)
+        internal object CreateInstance(Type type)
         {
             ConstructorInfo[] constructors = type.GetConstructors();
             ConstructorInfo constructor = GetBestConstructor(constructors);
@@ -133,28 +192,33 @@ namespace DependencyInjectionContainer
 
             ParameterInfo[] parameters = constructor.GetParameters();
             object[] newParams = new object[parameters.Length];
-            
+
+            recursionControl.Add(type);
+
             for (int i = 0; i < parameters.Length; i++)
             {
                 Type paramType = parameters[i].ParameterType;
 
-                if (configuration.DContainer[paramType].Contains(type))
+                if (recursionControl.Contains(paramType))
                 {
-                    throw new InvalidOperationException(string.Format("Can not create instance of type {0}. Implementation class constructor's parameter refers to this implementation class.", type));
+                    throw new InvalidOperationException(string.Format("Can not create instance of type {0}. Recursion control list contain this type.", type));
                 }
 
+                recursionControl.Add(paramType);
+                
                 if (paramType.IsGenericType)
                 {
                     newParams[i] = Resolve(paramType.GetGenericTypeDefinition()
                         .MakeGenericType(paramType.GenericTypeArguments));
                 } else
                 {
-                    if (configuration.DContainer.ContainsKey(paramType))
-                    {
-                        newParams[i] = Resolve(paramType);
-                    }
+                    newParams[i] = Resolve(paramType);
                 }
+
+                recursionControl.Remove(paramType);
             }
+
+            recursionControl.Remove(type);
 
             return constructor.Invoke(newParams);
         }
