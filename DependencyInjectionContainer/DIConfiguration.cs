@@ -31,11 +31,11 @@ namespace DependencyInjectionContainer
             
             if (IsSingleton[tDependency])
             {
-                SContainer[tDependency] = new SingletonContainer();
+                SContainer[tDependency] = new SingletonContainer(tImplementation);
             }
         }
 
-        public void Register(Type tDependency, Type tImplementation, bool isSingleton)
+        public void Register(Type tDependency, Type tImplementation)
         {
             if (!DContainer.ContainsKey(tDependency))
             {
