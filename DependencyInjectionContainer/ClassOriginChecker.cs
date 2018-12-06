@@ -8,6 +8,32 @@ namespace DependencyInjectionContainer
 {
     public static class ClassOriginChecker
     {
+        private static bool GenericsParamsEquality(Type baseType, Type toCheck)
+        {
+            var baseGenericArgs = baseType.GetGenericArguments();
+            var toCheckGenericArgs = toCheck.GetGenericArguments();
+            bool genericArgsEquality = true;
+
+            if (baseGenericArgs.Length != toCheckGenericArgs.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < baseGenericArgs.Length; i++)
+            {
+                if (baseGenericArgs[i].Name != toCheckGenericArgs[i].Name || baseGenericArgs[i].FullName != toCheckGenericArgs[i].FullName)
+                {
+                    genericArgsEquality = false;
+                }
+            }
+
+            if (!genericArgsEquality)
+            {
+                return false;
+            }
+            return true;
+        }
+
         public static bool IsDerivedFrom(Type toCheck, Type baseType)
         {
             //Normal class inheritance check
@@ -32,14 +58,11 @@ namespace DependencyInjectionContainer
                         var cur = toCheck.IsGenericType ? toCheck.GetGenericTypeDefinition() : toCheck;
                         if (baseType == cur)
                         {
-                            var baseGenericArgs = baseType.GetGenericArguments();
-                            var curGenericArgs = toCheck.GetGenericArguments();
-                            var genericArgsEquality = baseGenericArgs.SequenceEqual(curGenericArgs);
-                            if (!genericArgsEquality)
+                            if (GenericsParamsEquality(baseType, cur))
                             {
-                                return false;
+                                return true;
                             }
-                            return true;
+                            return false;
                         }
                         toCheck = toCheck.BaseType;
                     }
@@ -55,14 +78,11 @@ namespace DependencyInjectionContainer
                 && x.GetGenericTypeDefinition() == baseType.GetGenericTypeDefinition());
                 if (isImplement)
                 {
-                    var baseGenericArgs = baseType.GetGenericArguments();
-                    var toCheckGenericArgs = toCheck.GetGenericArguments();
-                    var genericArgsEquality = baseGenericArgs.SequenceEqual(toCheckGenericArgs);
-                    if (!genericArgsEquality)
+                    if (GenericsParamsEquality(baseType, toCheck))
                     {
-                        return false;
+                        return true;
                     }
-                    return true;
+                    return false;
                 }
             }
 
