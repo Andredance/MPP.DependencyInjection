@@ -10,20 +10,22 @@ namespace DependencyInjectionContainer
     {
         private readonly object syncRoot = new object();
         private volatile object instance;
+        private Type implementationType;
 
-        public SingletonContainer()
+        public SingletonContainer(Type implType)
         {
             instance = null;
+            implementationType = implType;
         }
 
-        public object GetInstance(DIProvider provider, Type type)
+        public object GetInstance(DIProvider provider)
         {
             if (instance == null)
             {
                 lock (syncRoot)
                 {
                     if (instance == null)
-                        instance = provider.Resolve(type);
+                        instance = provider.CreateInstance(implementationType);
                 }
             }
             return instance;
