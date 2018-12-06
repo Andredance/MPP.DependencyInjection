@@ -64,14 +64,12 @@ namespace DependencyInjectionContainer
                     }
                     return true;
                 }
-                else
-                {
-                    //Normal Interface checker
-                    if (!baseType.IsAssignableFrom(toCheck))
-                    {
-                        return false;
-                    }
-                }
+            }
+
+            //Normal Interface checker
+            if (!baseType.IsAssignableFrom(toCheck))
+            {
+                return false;
             }
 
             return true;
